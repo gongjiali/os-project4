@@ -38,7 +38,7 @@ file_open (struct inode *inode)
 {
   struct file *file = calloc (1, sizeof *file);
   /* check inode type */
-  if (inode != NULL && file != NULL && inode_get_type (inode) == FILE_INODE)
+  if (inode != NULL && file != NULL /* && inode_get_type (inode) == FILE_INODE */)
     {
       file->inode = inode;
       file->pos = 0;

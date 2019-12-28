@@ -39,13 +39,12 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+
+  /* free first or all the persistence tests will fail */
   cache_write_back ();
 }
 
-/* Extracts a file name part from *SRCP into PART,
-   and updates *SRCP so that the next call will return the next
-   file name part.
-   Returns 1 if successful, 0 at end of string, -1 for a too-long
+/* Returns 1 if successful, 0 at end of string, -1 for a too-long
    file name part. */
 static int
 get_next_part (char part[NAME_MAX], const char **srcp)
@@ -78,9 +77,7 @@ get_next_part (char part[NAME_MAX], const char **srcp)
 }
 
 /* Resolves relative or absolute file NAME.
-   Returns true if successful, false on failure.
-   Stores the directory corresponding to the name into *DIRP,
-   and the file name part into BASE_NAME. */
+   Returns true if successful, false on failure. */
 static bool
 resolve_name_to_entry (const char *name,
                        struct dir **dirp, char base_name[NAME_MAX + 1]) 
@@ -109,17 +106,31 @@ resolve_name_to_entry (const char *name,
   while ((ok = get_next_part (next_part, &cp)) > 0)
     {
       if (!dir_lookup (dir, part, &inode))
-        goto error;
+                    {
+      dir_close (dir);
+      dir= NULL;
+      base_name[0] = '\0';
+      return false;
+    }
 
       dir_close (dir);
       dir = dir_open (inode);
       if (dir == NULL)
-        goto error;
-
-      strlcpy (part, next_part, NAME_MAX + 1);
+            {
+      dir_close (dir);
+      dir= NULL;
+      base_name[0] = '\0';
+      return false;
+    }
+    strlcpy (part, next_part, NAME_MAX + 1);
     }
   if (ok < 0)
-    goto error;
+    {
+      dir_close (dir);
+      dir= NULL;
+      base_name[0] = '\0';
+      return false;
+    }
 
   /* Return our results. */
   *dirp = dir;
@@ -134,9 +145,7 @@ resolve_name_to_entry (const char *name,
   return false;
 }
 
-/* Resolves relative or absolute file NAME to an inode.
-   Returns an inode if successful, or a null pointer on failure.
-   The caller is responsible for closing the returned inode. */
+/* The caller is responsible for closing the returned inode. */
 static struct inode *
 resolve_name_to_inode (const char *name)
 {
@@ -144,8 +153,7 @@ resolve_name_to_inode (const char *name)
     {
       /* The name represents the root directory.
          There's no name part at all, so resolve_name_to_entry()
-         would reject it entirely.
-         Special case it. */
+         would reject it entirely.*/
       return inode_open (ROOT_DIR_SECTOR);
     }
   else 
@@ -174,20 +182,18 @@ filesys_create (const char *name, off_t initial_size, enum inode_type type)
 {
   struct dir *dir;
   char base_name[NAME_MAX + 1];
-  block_sector_t inode_sector;
+  block_sector_t inode_sector = 0;
 
   bool success = (resolve_name_to_entry (name, &dir, base_name)
                   && free_map_allocate (&inode_sector));
-  if (success) 
-    {
+  if (success) {
       struct inode *inode;
       if (type == FILE_INODE)
         inode = file_create (inode_sector, initial_size);
       else
         inode = dir_create (inode_sector,
                             inode_get_inumber (dir_get_inode (dir))); 
-      if (inode != NULL)
-        {
+      if (inode != NULL){
           success = dir_add (dir, base_name, inode_sector);
           if (!success)
             inode_remove (inode);
@@ -206,7 +212,7 @@ filesys_create (const char *name, off_t initial_size, enum inode_type type)
    otherwise.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
-struct inode *
+struct file *
 filesys_open (const char *name)
 {
   return resolve_name_to_inode (name);
@@ -233,8 +239,8 @@ filesys_remove (const char *name)
   
   return success;
 }
-/* Change current directory to NAME.
-   Return true if successful, false on failure. */
+
+
 bool
 filesys_chdir (const char *name) 
 {
@@ -255,15 +261,10 @@ do_format (void)
 {
   struct inode *inode;
   printf ("Formatting file system...");
-
-  /* Set up free map. */
   free_map_create ();
 
-  /* Set up root directory. */
-  inode = dir_create (ROOT_DIR_SECTOR, ROOT_DIR_SECTOR);
-  if (inode == NULL)
-    PANIC ("root directory creation failed");
-  inode_close (inode);  
+  if (!dir_create(ROOT_DIR_SECTOR, 16))
+    PANIC("root directory creation failed");
 
   free_map_close ();
 

@@ -56,7 +56,7 @@ struct dir *
 dir_open (struct inode *inode) 
 {
   struct dir *dir = calloc (1, sizeof *dir);
-  if (inode != NULL && dir != NULL && inode_get_type (inode) == DIR_INODE)
+  if (inode != NULL && dir != NULL /* && inode_get_type (inode) == DIR_INODE */)
     {
       dir->inode = inode;
       dir->pos = 0;
@@ -220,9 +220,6 @@ dir_remove (struct dir *dir, const char *name)
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
-  /* . and .. cannot be removed */  
-  if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
-    return false;
 
   /* Find directory entry. */
   inode_lock (dir->inode);

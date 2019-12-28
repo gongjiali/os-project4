@@ -31,9 +31,12 @@ static void deallocate_inode (const struct inode *);
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
+    /* block_sector_t start; */
     block_sector_t sectors[SECTOR_CNT]; /* Sectors. */
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
+    
+    /* =====added==== */
     /* store the type of an inode, FILE_INODE or DIR_INODE. */
     enum inode_type type;
   };
@@ -55,6 +58,7 @@ struct inode
     bool removed;                       /* True if deleted, false otherwise. */
     struct lock lock;                   /* Protects the inode. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
+    /* struct inode_disk data; */
     
     /* added */
     struct lock deny_write_lock;        /* for deny_write_cnt, no_writers, writer_cnt */
@@ -67,7 +71,7 @@ struct inode
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
-/* static block_sector_t
+/*  static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
@@ -75,7 +79,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
     return inode->data.start + pos / BLOCK_SECTOR_SIZE;
   else
     return -1;
-} */
+}  */
 
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
@@ -83,16 +87,6 @@ static struct list open_inodes;
 
 /* for open_inodes list. */
 static struct lock open_inodes_lock;
-
-
-
-
-
-
-
-
-
-
 
 static void
 deallocate_recursive (block_sector_t sector, int level) 
@@ -170,12 +164,7 @@ calculate_indices (off_t sector_idx, size_t offsets[], size_t *offset_cnt)
 
 /* Retrieves the data block for the given byte OFFSET in INODE,
    setting *DATA_BLOCK to the block.
-   Returns true if successful, false on failure.
-   If ALLOCATE is false, then missing blocks will be successful
-   with *DATA_BLOCk set to a null pointer.
-   If ALLOCATE is true, then missing blocks will be allocated.
-   The block returned will be locked, normally non-exclusively,
-   but a newly allocated block will have an exclusive lock. */
+   Returns true if successful, false on failure. */
 static bool
 get_data_block (struct inode *inode, off_t offset, bool allocate,
                 struct cache_block **data_block) 
@@ -285,15 +274,6 @@ get_data_block (struct inode *inode, off_t offset, bool allocate,
     }
 }
 
-
-
-
-
-
-
-
-
-
 /* Initializes the inode module. */
 void
 inode_init (void) 
@@ -315,8 +295,6 @@ inode_create (block_sector_t sector, enum inode_type type)
   struct inode *inode;
 
   block = cache_lock (sector, EXCLUSIVE);
-
-  
 
   /* set cache data to 0 */
   memset (block->data, 0, BLOCK_SECTOR_SIZE);
@@ -394,6 +372,16 @@ inode_reopen (struct inode *inode)
 }
 
 
+/* Returns the type of INODE. */
+enum inode_type
+inode_get_type (const struct inode *inode) 
+{
+  struct cache_block *inode_block = cache_lock (inode->sector, NON_EXCLUSIVE);
+  struct inode_disk *disk_inode = cache_read (inode_block);
+  enum inode_type type = disk_inode->type;
+  cache_unlock (inode_block);
+  return type;
+}
 
 /* Returns INODE's inode number. */
 block_sector_t
@@ -598,13 +586,8 @@ inode_length (const struct inode *inode)
 int
 inode_open_cnt (const struct inode *inode) 
 {
-  int open_cnt;
-  
-  lock_acquire (&open_inodes_lock);
-  open_cnt = inode->open_cnt;
-  lock_release (&open_inodes_lock);
 
-  return open_cnt;
+  return inode->open_cnt;
 }
 
 void
@@ -619,14 +602,3 @@ inode_unlock (struct inode *inode)
   lock_release (&inode->lock);
 }
 
-
-/* Returns the type of INODE. */
-enum inode_type
-inode_get_type (const struct inode *inode) 
-{
-  struct cache_block *inode_block = cache_lock (inode->sector, NON_EXCLUSIVE);
-  struct inode_disk *disk_inode = cache_read (inode_block);
-  enum inode_type type = disk_inode->type;
-  cache_unlock (inode_block);
-  return type;
-}
